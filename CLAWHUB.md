@@ -1,66 +1,55 @@
 # Invoice Merger - OpenClaw Skill
 
-发票合并工具，将多个发票 PDF 两两拼合为 A4 上下结构，省纸、省钱、省心。
+发票合并工具：将 PDF 和图片发票批量整理为可打印 PDF。
 
----
+## 核心能力
 
-## 为什么做这个工具
-
-打印发票时，一张 A4 纸打一张发票太浪费，也不符合财务归档要求（发票大小约 A4 一半）。市面上的解决方案：
-
-- **WPS**：会员功能，要收费
-- **在线工具**：要么收费，要么有水印，还要上传文件到第三方服务器
-
-于是用 OpenClaw 自己做了一个，打印效果不错，又参考付费软件加上了裁剪线。既然好用，不如分享出来让更多人免费用。
-
----
+- PDF：两两上下合并到 A4 页面
+- 图片（JPG/JPEG/PNG）：四张按 2x2 合并到 A4 页面
+- 上下半页中线自动加入裁剪线
+- 输出目录：`<输入目录>/YYYYMMDD--已合并`
+- 输出文件命名：优先基础名，重名时自动加序号
+  - `发票合并.pdf` -> `发票合并_001.pdf`
+  - `账单合并.pdf` -> `账单合并_001.pdf`
 
 ## 安装
 
-### OpenClaw 产品（推荐）
-
-支持 QClaw、WorkBuddy 等 OpenClaw 系列产品。
+### OpenClaw 产品
 
 将 `invoice-merger` 文件夹拖拽到 OpenClaw 对话窗口，或告诉 OpenClaw：
-```
+
+```text
 安装这个 skill：/path/to/invoice-merger
 ```
 
-### 命令行使用
+### ClawHub
+
+```text
+/skill install invoice-merger
+```
+
+## 依赖
 
 ```bash
-pip install pypdf reportlab
-python scripts/merge_invoices.py /path/to/invoices/
+pip3 install pypdf Pillow
 ```
 
----
+## 运行方式
 
-## 使用示例
-
-```
-用户：合并下发票文件夹里的 PDF
-用户：把这三个发票合并一下
-用户：帮我合并桌面上 /发票 目录下的所有 PDF
+```bash
+python3 invoice-merger/scripts/merge_invoices.py <目录路径>
 ```
 
----
+## 触发示例
 
-## 发布
+- 合并发票
+- 把这个目录里的发票拼一下
+- 把 PDF 和图片发票整理成可打印文件
 
-- **GitHub**: https://github.com/cdk1025/invoice-merger
-- **ClawHub**: https://clawhub.com（搜索 invoice-merger）
+## 说明
 
----
-
-## 效果预览
-
-> 截图放在 `screenshots/` 目录
-
-| 合并前 | 合并后 |
-|-------|-------|
-| 两张独立 PDF，各占一张 A4 | 一张 A4 上下拼合，中间裁剪线 |
-
----
+- PDF 仅处理每个输入文件的第一页
+- macOS 下自动打开本次生成的所有输出文件
 
 ## License
 
