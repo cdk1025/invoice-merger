@@ -25,7 +25,7 @@
 ### ClawHub
 
 ```text
-/skill install invoice-merger
+npx clawhub@latest install cdk1025/invoice-merger
 ```
 
 ## 依赖

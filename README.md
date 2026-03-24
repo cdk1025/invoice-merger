@@ -45,16 +45,16 @@
 ### 方式一：ClawHub 安装（推荐）
 
 ```text
-/skill install invoice-merger
+npx clawhub@latest install cdk1025/invoice-merger
 ```
 
-或在 ClawHub 搜索 `invoice-merger` 一键安装。
+或在 ClawHub 搜索 `invoice-merger` 安装。
 
 ### 方式二：本地/GitHub 安装
 
 - 把 `invoice-merger/` 文件夹拖入 OpenClaw 对话窗口
 - 或告诉 OpenClaw：`安装这个 skill：/path/to/invoice-merger`
-- 或提供仓库地址让 OpenClaw 拉取安装
+- 或使用仓库地址让 OpenClaw 拉取安装 `安装这个 skill https://github.com/cdk1025/invoice-merger`
 
 ## 依赖
 
