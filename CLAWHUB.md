@@ -68,7 +68,7 @@ python3 invoice-merger/scripts/merge_invoices.py <目录路径>
 - PDF 仅处理每个输入文件的第一页
 - 自动跳过历史生成的 `发票合并*.pdf`、`账单合并*.pdf`，避免二次缩版
 - 如果传入目录本身就是 `YYYYMMDD--已合并`，会直接在该目录下继续按编号生成
-- macOS 下自动打开本次生成的所有输出文件
+- 生成后会按系统默认程序自动打开本次输出文件（macOS / Windows / Linux）
 
 ## License
 

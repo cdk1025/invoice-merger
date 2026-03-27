@@ -94,4 +94,4 @@ python3 ~/.qclaw/skills/invoice-merger/scripts/merge_invoices.py <目录路径>
 - PDF 只取每个输入文件的第一页参与排版
 - 输出目录按日期创建，重复执行会复用同名目录
 - 为避免二次缩版，脚本不会再次处理自己历史生成的合并 PDF
-- macOS 下会自动打开本次生成的所有输出文件预览
+- 生成后会按系统默认程序自动打开本次输出文件（macOS / Windows / Linux）
