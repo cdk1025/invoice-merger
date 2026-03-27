@@ -6,11 +6,12 @@
 3. 输出目录：输入目录下 YYYYMMDD--已合并
 """
 
+import os
+import re
 import subprocess
 import sys
 from datetime import datetime
 from pathlib import Path
-import re
 
 try:
     from PIL import Image, ImageDraw, ImageOps
@@ -373,6 +374,20 @@ def process_directory(input_path):
     return outputs
 
 
+def open_output_files(output_files):
+    """按操作系统使用默认程序打开输出文件"""
+    for output_file in output_files:
+        try:
+            if sys.platform == "darwin":
+                subprocess.run(["open", str(output_file)], check=False)
+            elif sys.platform == "win32":
+                os.startfile(str(output_file))
+            elif sys.platform.startswith("linux"):
+                subprocess.run(["xdg-open", str(output_file)], check=False)
+        except Exception as e:
+            print(f"⚠ 自动打开失败: {output_file.name}, {e}")
+
+
 if __name__ == "__main__":
     if len(sys.argv) < 2:
         print("用法: python3 merge_invoices.py <目录路径>")
@@ -380,6 +395,5 @@ if __name__ == "__main__":
 
     output_files = process_directory(sys.argv[1])
 
-    if output_files and sys.platform == "darwin":
-        for output_file in output_files:
-            subprocess.run(["open", str(output_file)], check=False)
+    if output_files:
+        open_output_files(output_files)
