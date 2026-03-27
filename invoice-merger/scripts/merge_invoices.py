@@ -10,6 +10,7 @@ import subprocess
 import sys
 from datetime import datetime
 from pathlib import Path
+import re
 
 try:
     from PIL import Image, ImageDraw, ImageOps
@@ -17,20 +18,33 @@ try:
     from pypdf.generic import DecodedStreamObject, NameObject
 except ImportError as e:
     print(f"缺少依赖: {e}")
-    print("请运行: pip3 install pypdf Pillow")
+    print("脚本当前实际使用的第三方依赖只有 pypdf 和 Pillow。")
+    print("请先安装 Python 依赖，例如：")
+    print("python -m pip install pypdf Pillow")
     sys.exit(1)
 
 A4_WIDTH_PT = 595.2756
 A4_HEIGHT_PT = 841.8898
 MARGIN_PT = 15.0
+CUT_LINE_SAFE_MARGIN_PT = 15.0
+CUT_LINE_WIDTH_PT = 0.6
+CUT_LINE_DASH_PT = 6.0
+CUT_LINE_GAP_PT = 3.0
+CUT_LINE_GRAY = 0.55
 
 IMAGE_DPI = 150
-A4_WIDTH_PX = int(round(A4_WIDTH_PT / 72 * IMAGE_DPI))
-A4_HEIGHT_PX = int(round(A4_HEIGHT_PT / 72 * IMAGE_DPI))
-IMAGE_OUTER_MARGIN_PX = 12
-IMAGE_CELL_PADDING_PX = 8
-IMAGE_COL_GAP_PX = 12
-IMAGE_ROW_GAP_PX = 18
+PIXELS_PER_PT = IMAGE_DPI / 72
+A4_WIDTH_PX = int(round(A4_WIDTH_PT * PIXELS_PER_PT))
+A4_HEIGHT_PX = int(round(A4_HEIGHT_PT * PIXELS_PER_PT))
+IMAGE_OUTER_MARGIN_PX = int(round(MARGIN_PT * PIXELS_PER_PT))
+IMAGE_CELL_PADDING_PX = 0
+IMAGE_COL_GAP_PX = int(round(MARGIN_PT * PIXELS_PER_PT))
+IMAGE_ROW_GAP_PX = int(round(CUT_LINE_SAFE_MARGIN_PT * 2 * PIXELS_PER_PT))
+IMAGE_CUT_LINE_WIDTH_PX = max(1, int(round(CUT_LINE_WIDTH_PT * PIXELS_PER_PT)))
+IMAGE_CUT_LINE_DASH_PX = max(1, int(round(CUT_LINE_DASH_PT * PIXELS_PER_PT)))
+IMAGE_CUT_LINE_GAP_PX = max(1, int(round(CUT_LINE_GAP_PT * PIXELS_PER_PT)))
+IMAGE_CUT_LINE_GRAY = int(round(CUT_LINE_GRAY * 255))
+MERGED_OUTPUT_DIR_PATTERN = re.compile(r"^\d{8}--已合并$")
 
 
 def get_files(directory, extensions):
@@ -42,7 +56,11 @@ def get_files(directory, extensions):
 
 
 def create_output_dir(input_dir):
-    """在输入目录下创建：YYYYMMDD--已合并"""
+    """优先复用现有输出目录，否则在输入目录下创建：YYYYMMDD--已合并"""
+    if is_generated_output_dir(input_dir):
+        input_dir.mkdir(parents=True, exist_ok=True)
+        return input_dir
+
     ts = datetime.now().strftime("%Y%m%d")
     output_dir = input_dir / f"{ts}--已合并"
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -63,12 +81,86 @@ def indexed_output_path(output_dir, base_name):
         idx += 1
 
 
+def is_generated_output_dir(path):
+    """判断当前目录是否为本工具生成的输出目录"""
+    return MERGED_OUTPUT_DIR_PATTERN.match(path.name) is not None
+
+
+def is_generated_output_file(path):
+    """跳过本工具之前生成的合并文件，避免二次合并导致版式继续缩小"""
+    if path.suffix.lower() != ".pdf":
+        return False
+
+    stem = path.stem
+    return (
+        stem == "发票合并"
+        or stem == "账单合并"
+        or stem.startswith("发票合并_")
+        or stem.startswith("账单合并_")
+    )
+
+
+def filter_input_files(files):
+    """过滤工具自身生成的输出文件"""
+    skipped_files = [path for path in files if is_generated_output_file(path)]
+    kept_files = [path for path in files if not is_generated_output_file(path)]
+    return kept_files, skipped_files
+
+
+def get_pdf_layout_boxes():
+    """统一的 PDF 排版安全区：外边距 15pt，中线两侧各留 15pt"""
+    mid_y = A4_HEIGHT_PT / 2
+    left_x = MARGIN_PT
+    right_x = A4_WIDTH_PT - MARGIN_PT
+    top_box = (
+        left_x,
+        mid_y + CUT_LINE_SAFE_MARGIN_PT,
+        right_x,
+        A4_HEIGHT_PT - MARGIN_PT,
+    )
+    bottom_box = (
+        left_x,
+        MARGIN_PT,
+        right_x,
+        mid_y - CUT_LINE_SAFE_MARGIN_PT,
+    )
+    return top_box, bottom_box
+
+
+def get_image_layout_boxes():
+    """统一的图片排版安全区，确保内容不会压到中间裁剪线"""
+    usable_w = A4_WIDTH_PX - 2 * IMAGE_OUTER_MARGIN_PX - IMAGE_COL_GAP_PX
+    usable_h = A4_HEIGHT_PX - 2 * IMAGE_OUTER_MARGIN_PX - IMAGE_ROW_GAP_PX
+    cell_w = usable_w // 2
+    cell_h = usable_h // 2
+
+    left_x1 = IMAGE_OUTER_MARGIN_PX
+    left_x2 = left_x1 + cell_w
+    right_x1 = left_x2 + IMAGE_COL_GAP_PX
+    right_x2 = right_x1 + cell_w
+
+    top_y1 = IMAGE_OUTER_MARGIN_PX
+    top_y2 = top_y1 + cell_h
+    bottom_y1 = top_y2 + IMAGE_ROW_GAP_PX
+    bottom_y2 = bottom_y1 + cell_h
+
+    boxes = [
+        (left_x1, top_y1, left_x2, top_y2),
+        (right_x1, top_y1, right_x2, top_y2),
+        (left_x1, bottom_y1, left_x2, bottom_y2),
+        (right_x1, bottom_y1, right_x2, bottom_y2),
+    ]
+    cut_line_y = (top_y2 + bottom_y1) // 2
+    return boxes, cut_line_y
+
+
 def merge_page_into_box(target_page, src_page, x1, y1, x2, y2):
     """将 src_page 按比例缩放并居中放入目标区域"""
-    src_w = float(src_page.mediabox.width)
-    src_h = float(src_page.mediabox.height)
-    src_x = float(src_page.mediabox.left)
-    src_y = float(src_page.mediabox.bottom)
+    source_box = src_page.cropbox
+    src_w = float(source_box.width)
+    src_h = float(source_box.height)
+    src_x = float(source_box.left)
+    src_y = float(source_box.bottom)
 
     box_w = x2 - x1
     box_h = y2 - y1
@@ -94,9 +186,9 @@ def create_pdf_cut_line_overlay():
 
     content = (
         "q\n"
-        "0.6 w\n"
-        "[6 3] 0 d\n"
-        "0.55 0.55 0.55 RG\n"
+        f"{CUT_LINE_WIDTH_PT:.2f} w\n"
+        f"[{CUT_LINE_DASH_PT:.2f} {CUT_LINE_GAP_PT:.2f}] 0 d\n"
+        f"{CUT_LINE_GRAY:.2f} {CUT_LINE_GRAY:.2f} {CUT_LINE_GRAY:.2f} RG\n"
         f"{x1:.2f} {y:.2f} m\n"
         f"{x2:.2f} {y:.2f} l\n"
         "S\n"
@@ -122,6 +214,7 @@ def merge_pdfs_two(pdf_files, output_dir):
 
     output_file = indexed_output_path(output_dir, "发票合并")
     writer = PdfWriter()
+    top_box, bottom_box = get_pdf_layout_boxes()
 
     for i in range(0, len(pdf_files), 2):
         pair = pdf_files[i : i + 2]
@@ -133,10 +226,7 @@ def merge_pdfs_two(pdf_files, output_dir):
                 merge_page_into_box(
                     page,
                     top_reader.pages[0],
-                    MARGIN_PT,
-                    A4_HEIGHT_PT / 2 + MARGIN_PT,
-                    A4_WIDTH_PT - MARGIN_PT,
-                    A4_HEIGHT_PT - MARGIN_PT,
+                    *top_box,
                 )
         except Exception as e:
             print(f"  ⚠ PDF 读取失败: {pair[0].name}, {e}")
@@ -148,10 +238,7 @@ def merge_pdfs_two(pdf_files, output_dir):
                     merge_page_into_box(
                         page,
                         bottom_reader.pages[0],
-                        MARGIN_PT,
-                        MARGIN_PT,
-                        A4_WIDTH_PT - MARGIN_PT,
-                        A4_HEIGHT_PT / 2 - MARGIN_PT,
+                        *bottom_box,
                     )
             except Exception as e:
                 print(f"  ⚠ PDF 读取失败: {pair[1].name}, {e}")
@@ -194,13 +281,15 @@ def draw_image_cut_line(page_img, y):
     draw = ImageDraw.Draw(page_img)
     x_start = IMAGE_OUTER_MARGIN_PX
     x_end = A4_WIDTH_PX - IMAGE_OUTER_MARGIN_PX
-    dash = 18
-    gap = 10
     x = x_start
     while x < x_end:
-        x2 = min(x + dash, x_end)
-        draw.line([(x, y), (x2, y)], fill=(120, 120, 120), width=2)
-        x += dash + gap
+        x2 = min(x + IMAGE_CUT_LINE_DASH_PX, x_end)
+        draw.line(
+            [(x, y), (x2, y)],
+            fill=(IMAGE_CUT_LINE_GRAY, IMAGE_CUT_LINE_GRAY, IMAGE_CUT_LINE_GRAY),
+            width=IMAGE_CUT_LINE_WIDTH_PX,
+        )
+        x += IMAGE_CUT_LINE_DASH_PX + IMAGE_CUT_LINE_GAP_PX
 
 
 def merge_images_four(image_files, output_dir):
@@ -210,30 +299,7 @@ def merge_images_four(image_files, output_dir):
 
     output_file = indexed_output_path(output_dir, "账单合并")
     pages = []
-
-    usable_w = A4_WIDTH_PX - 2 * IMAGE_OUTER_MARGIN_PX - IMAGE_COL_GAP_PX
-    usable_h = A4_HEIGHT_PX - 2 * IMAGE_OUTER_MARGIN_PX - IMAGE_ROW_GAP_PX
-    cell_w = usable_w // 2
-    cell_h = usable_h // 2
-
-    left_x1 = IMAGE_OUTER_MARGIN_PX
-    left_x2 = left_x1 + cell_w
-    right_x1 = left_x2 + IMAGE_COL_GAP_PX
-    right_x2 = right_x1 + cell_w
-
-    top_y1 = IMAGE_OUTER_MARGIN_PX
-    top_y2 = top_y1 + cell_h
-    bottom_y1 = top_y2 + IMAGE_ROW_GAP_PX
-    bottom_y2 = bottom_y1 + cell_h
-
-    cut_line_y = (top_y2 + bottom_y1) // 2
-
-    boxes = [
-        (left_x1, top_y1, left_x2, top_y2),
-        (right_x1, top_y1, right_x2, top_y2),
-        (left_x1, bottom_y1, left_x2, bottom_y2),
-        (right_x1, bottom_y1, right_x2, bottom_y2),
-    ]
+    boxes, cut_line_y = get_image_layout_boxes()
 
     for i in range(0, len(image_files), 4):
         group = image_files[i : i + 4]
@@ -273,11 +339,13 @@ def process_directory(input_path):
         print(f"❌ 目录不存在: {input_path}")
         return []
 
-    pdf_files = get_files(input_path, [".pdf"])
+    pdf_files, skipped_pdf_files = filter_input_files(get_files(input_path, [".pdf"]))
     image_files = get_files(input_path, [".jpg", ".jpeg", ".png"])
 
     print(f"📄 找到 {len(pdf_files)} 个 PDF")
     print(f"🖼️ 找到 {len(image_files)} 个图片")
+    if skipped_pdf_files:
+        print(f"↩ 已跳过 {len(skipped_pdf_files)} 个历史合并 PDF，避免重复缩版")
 
     if not pdf_files and not image_files:
         print("❌ 未找到可处理文件")
@@ -285,6 +353,8 @@ def process_directory(input_path):
 
     output_dir = create_output_dir(input_path)
     print(f"📁 输出目录: {output_dir.name}")
+    if output_dir == input_path and is_generated_output_dir(input_path):
+        print("↩ 当前目录已是输出目录，将直接复用并按编号生成新文件")
 
     outputs = []
 
